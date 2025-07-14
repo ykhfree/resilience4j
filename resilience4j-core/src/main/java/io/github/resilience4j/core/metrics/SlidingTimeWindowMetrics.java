@@ -76,7 +76,6 @@ public class SlidingTimeWindowMetrics implements Metrics {
     @Override
     public Snapshot record(long duration, TimeUnit durationUnit, Outcome outcome) {
         lock.lock();
-
         try {
             totalAggregation.record(duration, durationUnit, outcome);
             moveWindowToCurrentEpochSecond(getLatestPartialAggregation())
@@ -89,7 +88,6 @@ public class SlidingTimeWindowMetrics implements Metrics {
 
     public Snapshot getSnapshot() {
         lock.lock();
-
         try {
             moveWindowToCurrentEpochSecond(getLatestPartialAggregation());
             return new SnapshotImpl(totalAggregation);

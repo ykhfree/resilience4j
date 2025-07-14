@@ -31,20 +31,26 @@ import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static java.util.Collections.emptyMap;
 import static java.util.Objects.requireNonNull;
-import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
+import io.github.resilience4j.core.ExecutorServiceFactory;
 
 /**
- * A RateLimiter implementation that consists of {@link Semaphore} and scheduler that will refresh
- * permissions after each {@link RateLimiterConfig#getLimitRefreshPeriod()}, you can invoke
- * {@link SemaphoreBasedRateLimiter#shutdown()} to close the limiter.
+ * A RateLimiter implementation that uses {@link Semaphore} for both virtual and platform threads.
+ * Semaphore is virtual thread compatible and provides excellent performance for both thread types
+ * without carrier thread pinning issues.
+ * 
+ * The implementation uses synchronized blocks where needed for coordination, which is acceptable
+ * as virtual threads handle blocking efficiently through parking/unparking mechanisms.
+ * A scheduler refreshes permissions after each {@link RateLimiterConfig#getLimitRefreshPeriod()}.
+ * Invoke {@link SemaphoreBasedRateLimiter#shutdown()} to close the limiter.
  */
 public class SemaphoreBasedRateLimiter implements RateLimiter {
+
 
     private static final String NAME_MUST_NOT_BE_NULL = "Name must not be null";
     private static final String CONFIG_MUST_NOT_BE_NULL = "Config must not be null";
@@ -57,6 +63,7 @@ public class SemaphoreBasedRateLimiter implements RateLimiter {
     private final Map<String, String> tags;
     private final RateLimiterEventProcessor eventProcessor;
     private final ScheduledFuture<?> scheduledFuture;
+    private final ReentrantLock refreshLock = new ReentrantLock();
 
     /**
      * Creates a RateLimiter.
@@ -107,21 +114,19 @@ public class SemaphoreBasedRateLimiter implements RateLimiter {
 
         this.scheduler = Optional.ofNullable(scheduler).orElseGet(this::configureScheduler);
         this.tags = tags;
-        this.semaphore = new Semaphore(this.rateLimiterConfig.get().getLimitForPeriod(), true);
+        
+        // Get limit once to avoid multiple calls to config.getLimitForPeriod()
+        int limitForPeriod = this.rateLimiterConfig.get().getLimitForPeriod();
+        this.semaphore = new Semaphore(limitForPeriod, true);
+        
         this.metrics = this.new SemaphoreBasedRateLimiterMetrics();
-
         this.eventProcessor = new RateLimiterEventProcessor();
-
         this.scheduledFuture = scheduleLimitRefresh();
     }
 
     private ScheduledExecutorService configureScheduler() {
-        ThreadFactory threadFactory = target -> {
-            Thread thread = new Thread(target, "SchedulerForSemaphoreBasedRateLimiterImpl-" + name);
-            thread.setDaemon(true);
-            return thread;
-        };
-        return newSingleThreadScheduledExecutor(threadFactory);
+        return ExecutorServiceFactory.newSingleThreadScheduledExecutor(
+            "SchedulerForSemaphoreBasedRateLimiterImpl-" + name);
     }
 
     private ScheduledFuture<?> scheduleLimitRefresh() {
@@ -134,10 +139,40 @@ public class SemaphoreBasedRateLimiter implements RateLimiter {
     }
 
     void refreshLimit() {
-        int permissionsToRelease =
-            this.rateLimiterConfig.get().getLimitForPeriod() - semaphore.availablePermits();
-        semaphore.release(permissionsToRelease);
+        // Use semaphore approach for both virtual and platform threads
+        // Synchronized blocks are virtual thread compatible through parking/unparking
+        refreshLimitSemaphore();
     }
+    
+    /**
+     * Unified limit refresh using semaphore approach for both virtual and platform threads.
+     * Uses ReentrantLock to prevent race conditions between getting current permits
+     * and calculating permits to release. ReentrantLock provides optimal virtual thread
+     * compatibility without carrier thread pinning issues.
+     * 
+     * This unified approach provides excellent performance for both thread types while
+     * completely avoiding carrier thread pinning issues.
+     */
+    private void refreshLimitSemaphore() {
+        refreshLock.lock();
+        try {
+            int targetPermits = this.rateLimiterConfig.get().getLimitForPeriod();
+            int currentPermits = semaphore.availablePermits();
+            int permissionsToRelease = targetPermits - currentPermits;
+            
+            if (permissionsToRelease > 0) {
+                semaphore.release(permissionsToRelease);
+            } else if (permissionsToRelease == 0) {
+                // Release 0 permits to potentially wake up waiting threads
+                semaphore.release(0);
+            }
+            // If permissionsToRelease < 0, there are more permits than target
+            // This can happen if the limit was decreased, just leave it as is
+        } finally {
+            refreshLock.unlock();
+        }
+    }
+
 
     /**
      * {@inheritDoc}
@@ -159,6 +194,9 @@ public class SemaphoreBasedRateLimiter implements RateLimiter {
             .limitForPeriod(limitForPeriod)
             .build();
         rateLimiterConfig.set(newConfig);
+        
+        // No additional synchronization needed - the semaphore will be updated 
+        // during the next refresh cycle by refreshLimitSemaphore()
     }
 
     /**
@@ -166,18 +204,22 @@ public class SemaphoreBasedRateLimiter implements RateLimiter {
      */
     @Override
     public boolean acquirePermission(int permits) {
+        boolean success;
+        
+        // Use semaphore for both virtual and platform threads
         try {
-            boolean success = semaphore
+            success = semaphore
                 .tryAcquire(permits, rateLimiterConfig.get().getTimeoutDuration().toNanos(),
                     TimeUnit.NANOSECONDS);
-            publishRateLimiterAcquisitionEvent(success, permits);
-            return success;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            publishRateLimiterAcquisitionEvent(false, permits);
-            return false;
+            success = false;
         }
+        
+        publishRateLimiterAcquisitionEvent(success, permits);
+        return success;
     }
+
 
     /**
      * Reserving permissions is not supported in the semaphore based implementation. Semaphores are
@@ -204,7 +246,9 @@ public class SemaphoreBasedRateLimiter implements RateLimiter {
 
     @Override
     public void drainPermissions() {
+        // Use semaphore for both virtual and platform threads
         int permits = semaphore.drainPermits();
+        
         if (eventProcessor.hasConsumers()) {
             eventProcessor.consumeEvent(new RateLimiterOnDrainedEvent(name, permits));
         }

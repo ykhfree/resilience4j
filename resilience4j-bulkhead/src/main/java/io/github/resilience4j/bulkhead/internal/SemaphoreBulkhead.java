@@ -45,6 +45,7 @@ import static java.util.Objects.requireNonNull;
  */
 public class SemaphoreBulkhead implements Bulkhead {
 
+
     private static final String CONFIG_MUST_NOT_BE_NULL = "Config must not be null";
     private static final String TAGS_MUST_NOTE_BE_NULL = "Tags must not be null";
 
@@ -83,7 +84,7 @@ public class SemaphoreBulkhead implements Bulkhead {
         this.tags = requireNonNull(tags, TAGS_MUST_NOTE_BE_NULL);
         // init semaphore
         this.semaphore = new Semaphore(config.getMaxConcurrentCalls(), config.isFairCallHandlingEnabled());
-
+        
         this.metrics = new BulkheadMetrics();
         this.eventProcessor = new BulkheadEventProcessor();
     }
@@ -244,6 +245,9 @@ public class SemaphoreBulkhead implements Bulkhead {
             return false;
         }
     }
+
+
+
 
     private void publishBulkheadEvent(Supplier<BulkheadEvent> eventSupplier) {
         if (eventProcessor.hasConsumers()) {

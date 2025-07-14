@@ -182,11 +182,27 @@ public class TaggedThreadPoolBulkheadMetricsPublisherTest {
 
     @Test
     public void availableThreadCountIsRegistered() {
-        Gauge availableThreadCount = meterRegistry.get(DEFAULT_BULKHEAD_AVAILABLE_THREAD_COUNT_METRIC_NAME).gauge();
+        
+        ThreadPoolBulkheadConfig config = ThreadPoolBulkheadConfig.custom()
+            .maxThreadPoolSize(2)
+            .coreThreadPoolSize(1)
+            .queueCapacity(1)
+            .build();
+        
+        SimpleMeterRegistry testRegistry = new SimpleMeterRegistry();
+        TaggedThreadPoolBulkheadMetricsPublisher testPublisher = new TaggedThreadPoolBulkheadMetricsPublisher(testRegistry);
+        ThreadPoolBulkhead testBulkhead = ThreadPoolBulkhead.of("testBulkhead", config);
+        
+        testPublisher.publishMetrics(testBulkhead);
+        
+        int expectedAvailableThreads = testBulkhead.getMetrics().getMaximumThreadPoolSize() - 
+                                        testBulkhead.getMetrics().getActiveThreadCount();
+        
+        Gauge availableThreadCount = testRegistry.get(DEFAULT_BULKHEAD_AVAILABLE_THREAD_COUNT_METRIC_NAME).gauge();
 
         assertThat(availableThreadCount).isNotNull();
-        assertThat(availableThreadCount.value()).isEqualTo(bulkhead.getMetrics().getAvailableThreadCount());
-        assertThat(availableThreadCount.getId().getTag(TagNames.NAME)).isEqualTo(bulkhead.getName());
+        assertThat(availableThreadCount.value()).isEqualTo(expectedAvailableThreads);
+        assertThat(availableThreadCount.getId().getTag(TagNames.NAME)).isEqualTo(testBulkhead.getName());
     }
 
     @Test

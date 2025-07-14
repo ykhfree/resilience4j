@@ -802,7 +802,6 @@ public final class CircuitBreakerStateMachine implements CircuitBreaker {
 
         private void toHalfOpenState() {
             lock.lock();
-
             try {
                 if (isOpen.compareAndSet(true, false)) {
                     transitionToHalfOpenState();
@@ -1065,6 +1064,7 @@ public final class CircuitBreakerStateMachine implements CircuitBreaker {
         private final AtomicBoolean isHalfOpen;
         private final int attempts;
         private final CircuitBreakerMetrics circuitBreakerMetrics;
+        // Lock-free permission handling to avoid virtual thread pinning
         @Nullable
         private final ScheduledFuture<?> transitionToFuture;
 
@@ -1098,8 +1098,7 @@ public final class CircuitBreakerStateMachine implements CircuitBreaker {
          */
         @Override
         public boolean tryAcquirePermission() {
-            if (permittedNumberOfCalls.getAndUpdate(current -> current == 0 ? current : --current)
-                > 0) {
+            if (permittedNumberOfCalls.getAndUpdate(current -> current > 0 ? current - 1 : current) > 0) {
                 return true;
             }
             circuitBreakerMetrics.onCallNotPermitted();

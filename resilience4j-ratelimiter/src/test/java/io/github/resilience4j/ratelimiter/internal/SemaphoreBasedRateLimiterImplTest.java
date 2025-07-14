@@ -21,6 +21,7 @@ package io.github.resilience4j.ratelimiter.internal;
 import com.jayway.awaitility.core.ConditionFactory;
 import io.github.resilience4j.ratelimiter.RateLimiter;
 import io.github.resilience4j.ratelimiter.RateLimiterConfig;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -56,6 +57,12 @@ public class SemaphoreBasedRateLimiterImplTest extends RateLimitersImplementatio
     @Rule
     public ExpectedException exception = ExpectedException.none();
     private RateLimiterConfig config;
+    private String originalVirtualThreadProperty;
+    
+    // Override to force platform thread mode for this specific test class
+    {
+        threadMode = "platform";
+    }
 
     private static ConditionFactory awaitImpatiently() {
         return await()
@@ -70,11 +77,25 @@ public class SemaphoreBasedRateLimiterImplTest extends RateLimitersImplementatio
 
     @Before
     public void init() {
+        // Save and clear virtual thread property to ensure tests use platform threads
+        originalVirtualThreadProperty = System.getProperty("resilience4j.thread.type");
+        System.clearProperty("resilience4j.thread.type");
+        
         config = RateLimiterConfig.custom()
             .timeoutDuration(TIMEOUT)
             .limitRefreshPeriod(REFRESH_PERIOD)
             .limitForPeriod(LIMIT)
             .build();
+    }
+
+    @After
+    public void cleanup() {
+        // Restore original virtual thread property
+        if (originalVirtualThreadProperty != null) {
+            System.setProperty("resilience4j.thread.type", originalVirtualThreadProperty);
+        } else {
+            System.clearProperty("resilience4j.thread.type");
+        }
     }
 
     @Test

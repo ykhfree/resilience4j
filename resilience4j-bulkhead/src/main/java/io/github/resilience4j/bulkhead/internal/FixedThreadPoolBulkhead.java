@@ -30,6 +30,7 @@ import io.github.resilience4j.core.ContextPropagator;
 import io.github.resilience4j.core.EventConsumer;
 import io.github.resilience4j.core.EventProcessor;
 import io.github.resilience4j.core.lang.Nullable;
+import io.github.resilience4j.core.ExecutorServiceFactory;
 
 import java.util.Map;
 import java.util.concurrent.*;
@@ -79,11 +80,15 @@ public class FixedThreadPoolBulkhead implements ThreadPoolBulkhead {
         this.config = requireNonNull(bulkheadConfig, CONFIG_MUST_NOT_BE_NULL);
         this.tags = requireNonNull(tags, TAGS_MUST_NOTE_BE_NULL);
         // init thread pool executor
+        ThreadFactory threadFactory = ExecutorServiceFactory.useVirtualThreads()
+            ? Thread.ofVirtual().name(String.join("-", "bulkhead", name, "v-"), 0).factory()
+            : new BulkheadNamingThreadFactory(name);
+
         this.executorService = new ThreadPoolExecutor(config.getCoreThreadPoolSize(),
             config.getMaxThreadPoolSize(),
             config.getKeepAliveDuration().toMillis(), TimeUnit.MILLISECONDS,
             config.getQueueCapacity() == 0 ? new SynchronousQueue<>() : new ArrayBlockingQueue<>(config.getQueueCapacity()),
-            new BulkheadNamingThreadFactory(name),
+            threadFactory,
             config.getRejectedExecutionHandler());
         // adding prover jvm executor shutdown
         this.metrics = new FixedThreadPoolBulkhead.BulkheadMetrics();
