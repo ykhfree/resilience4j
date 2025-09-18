@@ -26,7 +26,7 @@ include 'resilience4j-reactor'
 include 'resilience4j-micrometer'
 include 'resilience4j-bom'
 include 'resilience4j-framework-common'
-include 'resilience4j-kotlin'
+// include 'resilience4j-kotlin'  // Temporarily disabled - Kotlin doesn't support JDK 25 yet
 include 'resilience4j-vavr'
 include 'resilience4j-micronaut'
 include 'resilience4j-micronaut-annotation'

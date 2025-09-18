@@ -2,8 +2,8 @@ plugins {
     id "org.sonarqube" version "3.5.0.2730"
     id 'org.asciidoctor.jvm.convert' version '2.4.0'
     id "org.gradle.test-retry" version "1.5.10"
-    id "io.github.gradle-nexus.publish-plugin"  version "1.1.0"
-    id "me.champeau.jmh" version "0.6.8"
+    id "io.github.gradle-nexus.publish-plugin"  version "2.0.0"
+    id "me.champeau.jmh" version "0.7.3"
     id 'idea'
     id 'jacoco-report-aggregation'
     id 'jvm-test-suite'
@@ -88,8 +88,8 @@ configure(project.coreProjects) {
     }
 
     tasks.withType(JavaCompile) {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_25
+        targetCompatibility = JavaVersion.VERSION_25
         options.deprecation = true
         options.encoding = 'UTF-8'
         options.compilerArgs += ["-Xlint:unchecked", "-parameters"]

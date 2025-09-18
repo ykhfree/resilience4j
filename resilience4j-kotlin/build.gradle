@@ -26,6 +26,11 @@ dependencies {
     testImplementation(project(':resilience4j-micrometer').sourceSets.test.output)
 }
 
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
 compileKotlin {
     compilerOptions {
         it.jvmTarget.set(JvmTarget.JVM_21)
