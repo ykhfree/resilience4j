@@ -23,7 +23,7 @@ allprojects {
     }
 
     jacoco {
-        toolVersion = "0.8.12"
+        toolVersion = "0.8.12"  // TODO: Upgrade to JDK 25 compatible version when available (current 0.8.12 doesn't support class file major version 69)
     }
 }
 
